@@ -56,7 +56,7 @@ EE_COVID19_spread_areas = {1: (37,),  # Harjumaa
                            }
 
 # Area R0
-EE_COVID19_area_R0 = {1: 1.0,
+EE_COVID19_area_R0 = {1: 0.9,
                       2: 0.8,
                       3: 0.8,
                       4: 0.8,
@@ -135,7 +135,7 @@ def ee_read_covid19_stats():
 class InfectedPerson:
 
     # Need two pieces of information: when did the test return
-    def __init__(self, pers_id, when_test, area_id):
+    def __init__(self, pers_id, when_test, area_id, logdata):
         self.pers_id = pers_id  # Some ID, should be unique. You can use a counter.
         self.state = "I"  # Infected, but can turn to recovered with passing of time
         self.area_id = area_id  # Area ID, look above to see how this is related to counties
@@ -149,19 +149,26 @@ class InfectedPerson:
         # Debug
         print("Person ", self.pers_id, " was diagnosed with COVID19 on ", self.timestamp, " in the area ", self.area_id)
 
+        # Log interesting data
+        logdata.append([self.pers_id, self.timestamp, self.area_id, "I"])
+
     # new_date must be relative datetime
-    def check_recovered(self, new_date):
+    def check_recovered(self, new_date, logdata):
         days_passed = new_date - self.timestamp
         self.days_to_recovery_from_now = self.days_to_recovery - days_passed.days
         if days_passed.days > self.days_to_recovery:
             self.state = "R"  # Congratulations. You have (probably) survived
             print("Person ", self.pers_id, " recovered from COVID19 on ", new_date, " in the area ", self.area_id)
+            logdata.append([self.pers_id, new_date, self.area_id, "R"])
 
 
 # Once the person class is set up, we proceed with parsing the data. In the end, we have a list of people that are
 # either currently infected, or have recovered. In the next stage, one needs to filter out recovered people and
 # create separate lists for every area. We parse the list until the indicated date is reached.
 def ee_parse_infected_dynamically_and_assign_to_areas_until_date(mydate, do_log=False, log_loc=""):
+
+    logdata = [] # Collect interesting information about the infection dynamics
+
     # Parse the dataframe
     print("Parsing the data about COVID19 occurence in Estonia according to official information...")
 
@@ -185,12 +192,21 @@ def ee_parse_infected_dynamically_and_assign_to_areas_until_date(mydate, do_log=
     # Generate the reverse lookup for the areas
     county_to_area = ee_covid19_county_area_reverse_lookup()
 
+    # Needed to get first date
+    first_date_read = False
+    first_date = None
+
     for row in data.iterrows():
 
         # Here we do a few checks. First, which of the people in the infected list should recover on this day
         current_day = dateparser.parse(row[1]["ResultTime"])
 
-        [person.check_recovered(current_day) for person in the_infected if person.state == "I"]
+        # Need to store the first date
+        if not first_date_read:
+            first_date = current_day
+            first_date_read = True
+
+        [person.check_recovered(current_day, logdata) for person in the_infected if person.state == "I"]
 
         # Stop the loop if we have reached the desired date
         day_diff = mydate - current_day
@@ -201,7 +217,7 @@ def ee_parse_infected_dynamically_and_assign_to_areas_until_date(mydate, do_log=
         county = ee_get_county_ehak(row[1]["County"])
         if county is not -1 and row[1]["ResultValue"] == "P":
             # We have found an infected person. Let us create the person and add it to the list
-            person = InfectedPerson(the_inf_id, current_day, county_to_area[county])
+            person = InfectedPerson(the_inf_id, current_day, county_to_area[county], logdata)
             the_infected.append(person)
             the_inf_id += 1
 
@@ -211,7 +227,7 @@ def ee_parse_infected_dynamically_and_assign_to_areas_until_date(mydate, do_log=
 
     print("Finished parsing.")
 
-    return the_infected
+    return the_infected, {"first_date": first_date, "logdata": logdata}
 
 
 # Virus related statistics
