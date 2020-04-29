@@ -7,9 +7,14 @@ import math
 import pickle
 import time
 
-### Some tunable simulation parameters
-EE_SPREAD_SIM_DAYS_BACK = timedelta(days=10)
-EE_WHEN_INITIAL_POP_INFECT_SOMEONE_FACTOR = 0.8
+# Some tunable simulation parameters
+EE_SPREAD_SIM_DAYS_BACK = timedelta(days=10)  # Need to run every day to get fresh data
+EE_WHEN_INITIAL_POP_INFECT_SOMEONE_FACTOR = 0.8  # Related to generation interval
+
+EE_SIM_DAYS_TO_SIMULATE = 90
+
+# How many simulations?
+EE_SIM_NUM_SIMULATIONS = 1000
 
 # This parameter is rather sensitive. It was tuned considering the magnitudes of the probabilities of traveling
 # to given regions from given region. Feel free to modify it as needed.
@@ -297,7 +302,7 @@ Covid19SimEE = Covid19SimulationEE(initial_pool)
 Covid19SimEE.load_mobility_data("configs/Area_OD_matrix.pkl")
 
 # Stop time
-Covid19SimEE.stop_time = 90
+Covid19SimEE.stop_time = EE_SIM_DAYS_TO_SIMULATE
 
 # Run the simulation
 out = Covid19SimEE.do_simulation()
@@ -307,3 +312,47 @@ pdata = pd.DataFrame(data=out, columns=["1","2","3","4","5","6","7","8","Total"]
 pdata.to_excel("results/test_run_0001.xlsx", sheet_name="exp+inf in areas")
 
 print("Simulation run concluded in", str(time.time()-tim), "seconds. Excel file saved.")
+
+# %% ############### Monte-Carlo Simulations ################
+print("Running Monte-Carlo simulations...")
+tim = time.time()
+
+outs = []
+
+for k in tqdm(range(EE_SIM_NUM_SIMULATIONS)):
+
+    # Need to reload the list on every simulation
+    with open(INIT_DATA_LOC, "rb") as f:
+        initial_pool = pickle.load(f)
+
+    # Create the simulation
+    Covid19SimEE = Covid19SimulationEE(initial_pool)
+
+    # Load mobility data
+    Covid19SimEE.load_mobility_data("configs/Area_OD_matrix.pkl")
+
+    # Stop time
+    Covid19SimEE.stop_time = EE_SIM_DAYS_TO_SIMULATE
+
+    # Run the simulation
+    out = Covid19SimEE.do_simulation()
+
+    outs.append(out)
+
+# Get the averages and standard deviation
+outs_avg = sum(outs)/EE_SIM_NUM_SIMULATIONS
+outs_std = np.sqrt(sum(np.power(outs-outs_avg, 2)/(EE_SIM_NUM_SIMULATIONS-1)))
+
+outs_avg_std = np.concatenate([outs_avg, outs_std], axis=1)
+
+# Save data in Excel file
+pdata = pd.DataFrame(data=outs_avg_std, columns=["1_mean","2_mean","3_mean","4_mean",
+                                            "5_mean","6_mean","7_mean","8_mean",
+                                            "Total_mean",
+                                            "1_std", "2_std", "3_std", "4_std",
+                                            "5_std", "6_std", "7_std", "8_std",
+                                            "Total_std"
+                                            ])
+pdata.to_excel("results/test_run_mc_" + str(EE_SIM_NUM_SIMULATIONS) + ".xlsx", sheet_name="exp+inf in areas")
+
+print("Monte-Carlo run concluded in", str(time.time()-tim), "seconds. Excel file saved.")
