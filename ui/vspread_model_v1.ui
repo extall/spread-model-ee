@@ -30,7 +30,7 @@
        </font>
       </property>
       <property name="title">
-       <string>Step 1: Model initialization : Parameters cannot be changed unless a new simulation is created</string>
+       <string>Step 1: Model initialization: Parameters below cannot be changed unless a new simulation is created</string>
       </property>
       <layout class="QVBoxLayout" name="verticalLayout_8">
        <item>
@@ -167,7 +167,7 @@
           </widget>
          </item>
          <item row="2" column="1">
-          <widget class="QLineEdit" name="lineEdit">
+          <widget class="QLineEdit" name="txtProbInitialInfect">
            <property name="font">
             <font>
              <weight>50</weight>
@@ -193,7 +193,7 @@
        </font>
       </property>
       <property name="title">
-       <string>Step 2: Run simulation : Change the below parameters to analyze different outcomes</string>
+       <string>Step 2: Run simulation: Parameters below can be changed to analyze different simulation outcomes</string>
       </property>
       <layout class="QVBoxLayout" name="verticalLayout_4">
        <item>
@@ -209,7 +209,7 @@
               </font>
              </property>
              <property name="text">
-              <string>Prob (mobility between regions is unrestricted) =</string>
+              <string>Prob (mobility between regions is unrestricted) [0 = completely restricted, 1 = unrestricted, affects all regions] =</string>
              </property>
              <property name="alignment">
               <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
@@ -264,7 +264,7 @@
               </font>
              </property>
              <property name="text">
-              <string>Prob (mobility between Saaremaa and mainland is unrestricted) =</string>
+              <string>Prob (mobility between Saaremaa and mainland is unrestricted) [0 = completely restricted, 1 = unrestricted] =</string>
              </property>
              <property name="alignment">
               <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
@@ -533,7 +533,7 @@
           </widget>
          </item>
          <item>
-          <widget class="QLineEdit" name="lineEdit_3">
+          <widget class="QLineEdit" name="txtTStopNDays">
            <property name="font">
             <font>
              <weight>50</weight>
@@ -603,6 +603,44 @@
      </widget>
     </item>
     <item>
+     <widget class="QGroupBox" name="gbOutputFolder">
+      <property name="font">
+       <font>
+        <weight>75</weight>
+        <bold>true</bold>
+       </font>
+      </property>
+      <property name="title">
+       <string>Output folder: Results from simulation runs will be saved to this folder</string>
+      </property>
+      <layout class="QHBoxLayout" name="horizontalLayout_3">
+       <item>
+        <widget class="QLineEdit" name="txtOutputFolder">
+         <property name="font">
+          <font>
+           <weight>50</weight>
+           <bold>false</bold>
+          </font>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="btnBrowseOutputFolder">
+         <property name="font">
+          <font>
+           <weight>50</weight>
+           <bold>false</bold>
+          </font>
+         </property>
+         <property name="text">
+          <string>Browse...</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item>
      <widget class="QGroupBox" name="gbConfigurationFile">
       <property name="font">
        <font>
@@ -611,7 +649,7 @@
        </font>
       </property>
       <property name="title">
-       <string>Simulation configuration file</string>
+       <string>Simulation configuration file: Contains the initialized model and configurable simulation parameters, can be shared with others</string>
       </property>
       <layout class="QVBoxLayout" name="verticalLayout">
        <item>
@@ -630,7 +668,14 @@
           </widget>
          </item>
          <item>
-          <widget class="QLineEdit" name="txtConfigFileLoc"/>
+          <widget class="QLineEdit" name="txtConfigFileLoc">
+           <property name="font">
+            <font>
+             <weight>50</weight>
+             <bold>false</bold>
+            </font>
+           </property>
+          </widget>
          </item>
          <item>
           <widget class="QPushButton" name="btnConfigLoad">
@@ -695,6 +740,25 @@
          </property>
         </widget>
        </item>
+       <item>
+        <widget class="QProgressBar" name="progressBar">
+         <property name="enabled">
+          <bool>true</bool>
+         </property>
+         <property name="font">
+          <font>
+           <weight>50</weight>
+           <bold>false</bold>
+          </font>
+         </property>
+         <property name="value">
+          <number>0</number>
+         </property>
+         <property name="textVisible">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
       </layout>
      </widget>
     </item>
@@ -713,6 +777,8 @@
     <property name="title">
      <string>File</string>
     </property>
+    <addaction name="actionLoad_config_file"/>
+    <addaction name="actionSave_config_file_as"/>
    </widget>
    <widget class="QMenu" name="menuView">
     <property name="title">
@@ -733,6 +799,16 @@
    </property>
    <property name="text">
     <string>Display total active cases at init</string>
+   </property>
+  </action>
+  <action name="actionLoad_config_file">
+   <property name="text">
+    <string>Load config file...</string>
+   </property>
+  </action>
+  <action name="actionSave_config_file_as">
+   <property name="text">
+    <string>Save config file as...</string>
    </property>
   </action>
  </widget>
