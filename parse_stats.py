@@ -1,5 +1,5 @@
 # %% Imports
-from configs.stats import *
+from lib.stats import *
 import matplotlib.pyplot as plt
 import numpy as np
 
