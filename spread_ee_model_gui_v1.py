@@ -263,6 +263,30 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
                 os.mkdir(OUTPUT_DIR_NAME)
             self.txtOutputFolder.setText(self.fix_path(OUTPUT_DIR_NAME))
 
+        # Read the simulation parameters and set them in the simulation structure
+        simp = self.get_and_check_simulation_data()
+
+        # Mobility data settings
+        self.sim.fraction_stay_active = simp["frac_stay_active"]
+        self.sim.prob_mob_regions_unrestricted = simp["prob_mob_regions"]
+        self.sim.prob_mob_saare_reg_unrestricted = simp["prob_mob_saaremaa"]
+
+        # Construct and set R0 per region dict
+        covid19_r0 = {
+            1: simp["r0r1"],
+            2: simp["r0r2"],
+            3: simp["r0r3"],
+            4: simp["r0r4"],
+            5: simp["r0r5"],
+            6: simp["r0r6"],
+            7: simp["r0r7"],
+            8: simp["r0r8"],
+        }
+        self.sim.r0_per_region = covid19_r0
+
+        # Days to simulate
+        self.sim.stop_time = simp["t_stop"]
+
         self.show_info_box("Model initialized",
                            "The model has been initialized, but the configuration " +
                            "file has not yet been written to disk.")
@@ -342,7 +366,8 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
         # TODO: TEMP: For buttons, use .clicked.connect(self.*), for menu actions .triggered.connect(self.*),
         # TODO: TEMP: for checkboxes use .stateChanged, and for spinners .valueChanged
         self.btnFetchDataAndProcess.clicked.connect(self.create_new_simulation)
-        self.btnConfigLoad.clicked.connect(self.get_and_check_simulation_data)
+        self.btnConfigLoad.clicked.connect(self.config_load)
+        self.btnBrowseOutputFolder.clicked.connect(self.browse_output_folder)
 
     # Helper for QMessageBox
     @staticmethod
@@ -412,6 +437,9 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
     def config_save(self):
         print("Not implemented")
 
+    def config_save_as(self):
+        print("Not implemented")
+
     def check_paths(self):
         # Use this to check the paths
         print("Not implemented")
@@ -422,6 +450,11 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
         self.statusbar.showMessage(self.APP_STATUS_STATES[msgid])
         if self.app is not None:
             self.app.processEvents()
+
+    def browse_output_folder(self):
+        dir = QtWidgets.QFileDialog.getExistingDirectory(self, "Choose output directory")
+        if dir:
+            self.txtOutputFolder.setText(self.fix_path(dir))
 
     # Locate the shapefile directory
     def load_config_file(self):
