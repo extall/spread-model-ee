@@ -62,6 +62,11 @@ class Person:
         self.will_infect_when = self.generation_interval
         self.will_infect_where = None
 
+        # This is reserved for the case of R0 > 1 in which the person will
+        # definitely infect at least N people, where N = int(modf(R0)[1]) and
+        # with probability modf(R0)[0] one more person
+        self.will_infect_more = 0
+
         # According to probability, assign whether the person will infect someone
         if self.check_if_will_infect():
             self.will_infect = True
@@ -77,14 +82,27 @@ class Person:
             self.state = "I"
 
             # When will the person recover?
-            self.recover_time = self.covid19.get_days_to_recovery() + t
+            days_to_recover = self.covid19.get_days_to_recovery()
+            self.recover_time = days_to_recover + t
+
+            # If log redirect exists, log this
+            if self.simul.log_redirect is not None and self.simul.do_log:
+                self.simul.log_redirect("Person " + str(self.person_id) + " in area " + str(self.area_id) +
+                                        " begins showing symptoms and will recover in " + str(days_to_recover) +
+                                        " days")
 
         # At this stage we also figure out whether it's time for the person to infect
 
     # NB! Should account for the situation where R0 > 1.
     # This here is the most crucial step in the whole simulation
     def check_if_will_infect(self):
-        return np.random.random() < EE_COVID19_area_R0[self.area_id]
+        # Let us see what happens according to the region's R0
+        r0 = EE_COVID19_area_R0[self.area_id]
+        if r0 > 1:
+            self.will_infect_more = int(math.modf(r0)[1])
+            r0 = math.modf(r0)[0]
+
+        return np.random.random() <= r0
 
     # This needs an AREAS argument which is the dictionary of lists that contain all the areas with E/I/R persons
     # (from Simulation structure)
@@ -95,11 +113,82 @@ class Person:
 
         areadict = self.simul.pool
 
-        if (self.state == "E" or self.state == "I") and self.will_infect and self.will_infect_when > t and \
-                areadict[self.will_infect_where][0] >= len(areadict[self.will_infect_where][1]):
+        if (self.state == "E" or self.state == "I") and (self.will_infect or self.will_infect_more > 0) \
+                and self.will_infect_when > t \
+                and areadict[self.will_infect_where][0] >= len(areadict[self.will_infect_where][1]) + self.will_infect_more:
+
             # Only add a new exposed person if area is not saturated (max pop size reached)
-            npc = Person(self.will_infect_where, t, self.simul)
-            areadict[self.will_infect_where][1].append(npc)
+            # Also check mobility restriction probabilities for every case
+
+            # This is the case for r0<=1
+            if self.will_infect:
+
+                this_mobility_restricted = False
+
+                # Check mobility to and from Saaremaa
+                if self.area_id == 6 or self.will_infect_where == 6:
+                    # Check restriction probability
+                    if not (np.random.random() <= self.simul.prob_mob_saare_reg_unrestricted):
+                        this_mobility_restricted = True
+                # Or check inter-region mobility
+                elif self.area_id != self.will_infect_where:
+                    if not (np.random.random() <= self.simul.prob_mob_regions_unrestricted):
+                        this_mobility_restricted = True
+
+                if not this_mobility_restricted:
+                    id_to_infect = self.simul.next_person_id
+                    npc = Person(id_to_infect, self.will_infect_where, t, self.simul)
+                    self.simul.next_person_id += 1  # Need to keep track of this
+                    areadict[self.will_infect_where][1].append(npc)
+                    if self.simul.log_redirect is not None and self.simul.do_log:
+                        self.simul.log_redirect("Person " + str(self.person_id) + " from area " + str(self.area_id) +
+                                                " infects a new person " + str(id_to_infect) + " in area " +
+                                                str(self.will_infect_where))
+                else:
+                    if self.simul.log_redirect is not None and self.simul.do_log:
+                        self.simul.log_redirect(
+                            "Person " + str(self.person_id) + " from area " + str(self.area_id) +
+                            " would have infected a new person in area " +
+                            str(self.will_infect_where) + ", but movement restrictions prevented that")
+
+            # This is the case for "infect more".
+            # NB! Assumption: if mobility is restricted, infecting others will fail in all cases
+            if self.will_infect_more > 0:
+
+                this_mobility_restricted = False
+
+                # Check mobility to and from Saaremaa
+                if self.area_id == 6 or self.will_infect_where == 6:
+                    # Check restriction probability
+                    if not (np.random.random() <= self.simul.prob_mob_saare_reg_unrestricted):
+                        this_mobility_restricted = True
+                # Or check inter-region mobility
+                elif self.area_id != self.will_infect_where:
+                    if not (np.random.random() <= self.simul.prob_mob_regions_unrestricted):
+                        this_mobility_restricted = True
+
+                if not this_mobility_restricted:
+                    for i in range(self.will_infect_more):
+                        id_to_infect = self.simul.next_person_id
+                        npc = Person(id_to_infect, self.will_infect_where, t, self.simul)
+                        self.simul.next_person_id += 1  # Need to keep track of this
+                        areadict[self.will_infect_where][1].append(npc)
+
+                        if self.simul.log_redirect is not None and self.simul.do_log:
+                            self.simul.log_redirect(
+                                "Person " + str(self.person_id) + " from area " + str(self.area_id) +
+                                " infects a new person " + str(id_to_infect) + " in area " +
+                                str(self.will_infect_where))
+                else:
+                    if self.simul.log_redirect is not None and self.simul.do_log:
+                        self.simul.log_redirect(
+                            "Person " + str(self.person_id) + " from area " + str(self.area_id) +
+                            " would have infected " + str(self.will_infect_more) + " person(s) in area " +
+                            str(self.will_infect_where) + ", but movement restrictions prevented that")
+
+            # There is one chance to infect someone, so we need to nullify the corresponding parameters
+            self.will_infect = False
+            self.will_infect_more = 0
 
     # Infected to recovered (time = simulation time)
     def check_state_i_to_r(self, t):
@@ -107,10 +196,14 @@ class Person:
         # The person has recovered and is moved out of the active cases pool
         if self.state == "I" and self.recover_time == t:
             self.state = "R"
+            if self.simul.log_redirect is not None and self.simul.do_log:
+                self.simul.log_redirect("Person " + str(self.person_id) + " in area " +
+                                        str(self.area_id) + " is moved to recovered pool")
 
     def get_infection_area(self):
 
-        # The case when no reference to simulation is available, mobility_dict is missing, or there is no simulation pool
+        # The case when no reference to simulation is available,
+        # mobility_dict is missing, or there is no simulation pool
         if self.simul is None or self.simul.mobility_dict is None or self.simul.pool is None:
             return self.area_id
 
@@ -155,6 +248,12 @@ class Covid19SimulationEEV1:
 
         # Simulation timestamp
         self.created_timestamp = datetime.now()
+
+        # Log redirect fn
+        self.log_redirect = log_redirect
+
+        # Logging enabled by default
+        self.do_log = True
 
         # Check initial infected population generation parameters
 
@@ -203,7 +302,11 @@ class Covid19SimulationEEV1:
         # Generate initial pool of infected
         self.initial_pool = None
         self.initial_pool_aux_data = None
-        self.generate_infected_pool(data_url, log_redirect)
+        self.generate_infected_pool(data_url)
+
+        # Run parameters
+        self.simulation_running = False
+        self.simulation_abort = False
 
     def initial_pool_generate_person(self, p):
         # NB! Assumption: we cut generation intervals by a factor in the initial infected population
@@ -217,7 +320,7 @@ class Covid19SimulationEEV1:
         pers.will_infect = False  # By default, the person will not infect anyone (see below for P)
         pers.state = "I"
         pers.recover_time = p.days_to_recovery_from_now
-        if pers.check_if_will_infect() and np.random.random() < self.prob_initial_infect_another:
+        if pers.check_if_will_infect() and np.random.random() <= self.prob_initial_infect_another:
             pers.will_infect = True
             pers.will_infect_where = infect_area
             pers.will_infect_when = math.floor(pers.covid19.get_generation_interval() * self.init_gen_interval_factor)
@@ -227,14 +330,14 @@ class Covid19SimulationEEV1:
         return pers
 
     # We need a list of person of type "InfectedPerson" here that is generated by parsing the file by a stats function
-    def generate_infected_pool(self, data_url, log_redirect):
+    def generate_infected_pool(self, data_url):
 
         initial_pool = {}
         popmaxsizes = ee_covid19_area_population_2016()
 
         initial_situation, logdata = \
             ee_parse_infected_dynamically_and_assign_to_areas_until_date(self.simulation_performed - self.days_back,
-                                                                         log_redirect_fn=log_redirect,
+                                                                         log_redirect_fn=self.log_redirect,
                                                                          url=data_url)
 
         self.initial_pool_aux_data = logdata  # This may be required for graphing, etc.
@@ -307,24 +410,62 @@ class Covid19SimulationEEV1:
             act.append(len([p for p in self.pool[i+1][1] if (p.state == "I" or p.state == "E")]))
         return act
 
-    def do_simulation(self):
+    def get_number_of_infected(self):
+        inf = []
+        for i in range(8):
+            inf.append(len([p for p in self.pool[i+1][1] if (p.state == "I")]))
+        return inf
+
+    def do_simulation(self, do_log = True):
+
+        # Set flags
+        self.simulation_running = True
+        self.simulation_abort = False
+
+        # Simulation log
+        self.do_log = do_log
 
         # Set up the pool
         self.pool = self.initial_pool.copy()
 
         # Reset person ID to initial pool person ID
         self.next_person_id = self.initial_person_last_id
-        
-        # Keep track of the number of active cases
-        out = np.zeros((self.stop_time+1, 9), dtype=int)
+
+        # Keep track of the number of active cases and new cases
+        out_act = np.zeros((self.stop_time+1, 9), dtype=int)
+        out_new = np.zeros((self.stop_time + 1, 9), dtype=int)
         
         while self.time <= self.stop_time:
 
+            # Check if abort flag gets set
+            if self.simulation_abort:
+                break
+
             act_cases = self.get_number_of_active_cases()
-            out[self.time, :8] = act_cases
-            out[self.time, 8] = sum(act_cases)
+            out_act[self.time, :8] = act_cases
+            out_act[self.time, 8] = sum(act_cases)
+
+            # This will be used to determine the number of new cases.
+            # New cases are defined as follows: increase of infected per day (essentially how many e->i events occured)
+            inf_before = self.get_number_of_infected()
 
             self.do_step()
 
-        return out
+            inf_after = self.get_number_of_infected()
+            tot_new_cases = []
+
+            for c in range(8):
+                nc = inf_after[c] - inf_before[c]
+                tot_new_cases.append(0 if nc < 0 else nc)
+
+            # Because a step was performed at this point, we need to store new cases to previous day statistics
+            out_new[self.time-1, :8] = tot_new_cases
+            out_new[self.time-1, 8] = sum(tot_new_cases)
+
+        self.simulation_running = False
+
+        if self.simulation_abort:
+            return False
+        else:
+            return (out_act, out_new)
 

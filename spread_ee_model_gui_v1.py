@@ -8,6 +8,7 @@ import subprocess
 import numpy as np
 from pathlib import Path
 import pickle
+import copy
 
 # Specific UI features
 from PyQt5 import QtGui, QtWidgets, QtCore
@@ -18,7 +19,6 @@ import matplotlib
 matplotlib.use("Qt5Agg")
 import matplotlib.pyplot as plt
 plt.ion()
-import matplotlib.patches as patches
 
 # The library
 from lib.spread_ee import *
@@ -33,14 +33,24 @@ APP_VERSION = "1.0-beta"
 CONFIG_DIR_NAME = "configs"
 OUTPUT_DIR_NAME = "results"
 
+
 # Main UI class with all methods
 class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
+
     # Applications states in status bar
     APP_STATUS_STATES = {"ready": "Ready.",
-                         "processing": "Processing "}
+                         "processing": "Processing data",
+                         "running_single": "Running single simulation...",
+                         "running_mc": "Running Monte-Carlo simulations..."}
 
     DATA_PROCESSED_STATE = {0: "Model init: <span style='color: red'>NO</span>",
                             1: "Model init: <span style='color: green'>YES</span>"}
+
+    SINGLE_SIM_BUTTON_STATES = ["Run single simulation with logging",
+                                "Stop single simulation"]
+
+    MC_SIM_BUTTON_STATES = ["Run Monte-Carlo simulations",
+                            "Stop Monte-Carlo simulations"]
 
     initializing = False
     app = None
@@ -49,7 +59,7 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
 
     proposed_fn = None
 
-    data_processed = False
+    initial_active_case_dynamics = None
 
     def __init__(self, parent=None):
 
@@ -64,6 +74,9 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
 
         # Log this anyway
         self.log("Application started")
+
+        # Hide progress bar
+        self.init_progress_bar()
 
         # Initialization completed
         self.initializing = False
@@ -308,11 +321,12 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
                                              log_redirect = self.log,
                                              gen_params=gen_params)
             self.setup_created_simulation()
-        except:
+        except Exception as ex:
             self.show_info_box("Cannot initialize the model", "Could not initialize the model. " +
                      "Check your network connection and whether the data file is accessible.")
 
-            self.log("Error during model initialization")
+            self.log("Error during model initialization: " + str(ex))
+
 
         self.btnFetchDataAndProcess.setEnabled(True)
 
@@ -354,10 +368,14 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
                     actsum += days_active_cases[int(i)]
                 y[int(i)] = actsum
 
-            h = plt.figure()
+            # Store this information since it may be necessary later
+            self.initial_active_case_dynamics = (t, y)
+
+            h = plt.figure(num="EE Virus Active Cases")
             plt.plot(t, y)
             plt.xlabel("Days since " + str(datas["first_date"]))
             plt.ylabel("Number of active cases in Estonia [statistical model]")
+            plt.title("Active case dynamics in Estonia (with predicted recovery)")
             plt.grid(True)
 
     # Set up those UI elements that depend on config
@@ -368,6 +386,15 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
         self.btnFetchDataAndProcess.clicked.connect(self.create_new_simulation)
         self.btnConfigLoad.clicked.connect(self.config_load)
         self.btnBrowseOutputFolder.clicked.connect(self.browse_output_folder)
+        self.btnSaveConfig.clicked.connect(self.config_save)
+        self.btnConfigSaveAs.clicked.connect(self.config_save_as)
+        self.btnConfigLoad.clicked.connect(self.config_load)
+        self.btnSingleSim.clicked.connect(self.run_single_simulation)
+        self.btnMCSim.clicked.connect(self.run_mc_simulations)
+
+        # Menu actions
+        self.actionLoad_config_file.triggered.connect(self.config_load)
+        self.actionSave_config_file_as.triggered.connect(self.config_save_as)
 
     # Helper for QMessageBox
     @staticmethod
@@ -383,6 +410,9 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
     @staticmethod
     def sanitize_url(url):
         return url.replace(" ", "")
+
+    def init_progress_bar(self):
+        self.progressBar.hide()
 
     # In-GUI console log
     def log(self, line):
@@ -434,11 +464,41 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
     def config_load(self):
         print("Not implemented")
 
-    def config_save(self):
+    def update_sim_parameters(self):
         print("Not implemented")
 
-    def config_save_as(self):
+    def update_and_save_config(self):
         print("Not implemented")
+
+    def config_save(self):
+        # Get config file name
+        fs = self.txtConfigFileLoc.text()
+
+        # Try to save
+        try:
+            sim = copy.deepcopy(self.sim)  # Create a deep copy so that everything is stored
+
+            # In order to avoid recursive copy of the GUI widget references, need to completely disable logging in sim
+            sim.log_redirect = None
+
+            with open(fs, "wb") as f:
+                pickle.dump(sim, f)
+        except Exception as ex:
+            self.show_info_box("Config file write error", "Could not save configuration file")
+            self.log("Could not save configuration file: " + str(ex))
+
+    def config_save_as(self):
+
+        # Get current directory
+        p = Path(self.txtConfigFileLoc.text())
+        dir = p.parent
+        prefer_save = dir + os.sep + self.proposed_fn
+
+        fs = QtGui.QFileDialog.getSaveFileName(self, "Save config file as", prefer_save, "*.cfg")
+        if fs:
+            self.txtConfigFileLoc.setText(fs[0])
+            self.config_save()
+
 
     def check_paths(self):
         # Use this to check the paths
@@ -456,13 +516,61 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
         if dir:
             self.txtOutputFolder.setText(self.fix_path(dir))
 
-    # Locate the shapefile directory
-    def load_config_file(self):
-        # dir = QtWidgets.QFileDialog.getExistingDirectory(self, "Choose directory containing the defect shapefiles")
+    # Simulations #
+
+    # Single simulation
+    def run_single_simulation(self):
+
+        # Need to read off latest parameters
+        self.update_sim_parameters()
+
+        # Perform actions depending on the simulation state
+        if self.sim.simulation_running:
+            # Abort simulation
+            self.sim.simulation_abort = True
+            self.btnSingleSim.setText(self.SINGLE_SIM_BUTTON_STATES[0])
+        else:
+            # Start the simulation
+            self.btnSingleSim.setText(self.SINGLE_SIM_BUTTON_STATES[1])
+
+            tim = time.time()
+            self.log("Running single simulation...")
+
+            out = self.sim.do_simulation()
+
+            if out:
+
+                # Read the data
+                act, new = out
+
+                # Reset button state
+                self.btnSingleSim.setText(self.SINGLE_SIM_BUTTON_STATES[0])
+
+                self.log("Single simulation completed in " + str(time.time()-tim) + " seconds.")
+
+                column_names = ["1", "2", "3", "4", "5", "6", "7", "8", "Total"]
+
+                # Filename
+                fn = "single_sim_results_" + datetime.fromtimestamp(time.time()).strftime('%Y_%m_%d_%H%M%S') + ".xlsx"
+
+                pdata_act = pd.DataFrame(data=act, columns=column_names)
+                pdata_new = pd.DataFrame(data=new, columns=column_names)
+
+                excelwr = pd.ExcelWriter(self.txtOutputFolder.text() + fn, engine="xlsxwriter")
+
+                pdata_act.to_excel(excelwr, sheet_name="exp+inf in areas")
+                pdata_new.to_excel(excelwr, sheet_name="new in areas")
+
+                excelwr.save()
+
+            else:
+                self.log("Single simulation aborted.")
+
+
+    # Monte-Carlo simulations
+    def run_mc_simulations(self):
         print("Not implemented")
 
-    def save_as_config_file(self):
-        print("Not implemented")
 
 def main():
     # Prepare and launch the GUI
@@ -473,15 +581,9 @@ def main():
     dialog.app = app  # Store the reference
     dialog.show()
 
-    # Now we have to load the app configuration file
-    dialog.config_load()
-
     # After loading the config file, we need to set up relevant UI elements
     dialog.config_ui()
     dialog.app.processEvents()
-
-    # Now we also save the config file
-    dialog.config_save()
 
     # And proceed with execution
     app.exec_()

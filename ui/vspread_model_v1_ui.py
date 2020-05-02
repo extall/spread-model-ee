@@ -11,8 +11,8 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 class Ui_SpreadEEGui(object):
     def setupUi(self, SpreadEEGui):
         SpreadEEGui.setObjectName("SpreadEEGui")
-        SpreadEEGui.resize(1200, 900)
-        SpreadEEGui.setMinimumSize(QtCore.QSize(1200, 900))
+        SpreadEEGui.resize(920, 800)
+        SpreadEEGui.setMinimumSize(QtCore.QSize(900, 800))
         self.centralwidget = QtWidgets.QWidget(SpreadEEGui)
         self.centralwidget.setObjectName("centralwidget")
         self.verticalLayout_2 = QtWidgets.QVBoxLayout(self.centralwidget)
@@ -431,7 +431,7 @@ class Ui_SpreadEEGui(object):
         self.verticalLayout_2.addWidget(self.gbApplicationLog)
         SpreadEEGui.setCentralWidget(self.centralwidget)
         self.menubar = QtWidgets.QMenuBar(SpreadEEGui)
-        self.menubar.setGeometry(QtCore.QRect(0, 0, 1200, 31))
+        self.menubar.setGeometry(QtCore.QRect(0, 0, 920, 21))
         self.menubar.setObjectName("menubar")
         self.menuFile = QtWidgets.QMenu(self.menubar)
         self.menuFile.setObjectName("menuFile")
