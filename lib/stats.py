@@ -239,7 +239,7 @@ def ee_parse_infected_dynamically_and_assign_to_areas_until_date(mydate, log_red
     else:
         log_redirect_fn(txt)
 
-    return the_infected, {"first_date": first_date, "logdata": logdata}
+    return the_infected, {"first_date": first_date, "last_date": current_day, "logdata": logdata}
 
 
 # Virus related statistics

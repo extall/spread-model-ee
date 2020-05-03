@@ -41,7 +41,9 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
     APP_STATUS_STATES = {"ready": "Ready.",
                          "processing": "Processing data",
                          "running_single": "Running single simulation...",
-                         "running_mc": "Running Monte-Carlo simulations..."}
+                         "running_mc": "Running Monte-Carlo simulations...",
+                         "stopping_single": "Stopping single simulation...",
+                         "stopping_mc": "Stopping Monte-Carlo simulations..."}
 
     DATA_PROCESSED_STATE = {0: "Model init: <span style='color: red'>NO</span>",
                             1: "Model init: <span style='color: green'>YES</span>"}
@@ -60,6 +62,9 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
     proposed_fn = None
 
     initial_active_case_dynamics = None
+
+    mc_simulation_running = False
+    mc_simulation_abort = False
 
     def __init__(self, parent=None):
 
@@ -276,6 +281,19 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
                 os.mkdir(OUTPUT_DIR_NAME)
             self.txtOutputFolder.setText(self.fix_path(OUTPUT_DIR_NAME))
 
+        self.update_simulation_params()
+
+        self.show_info_box("Model initialized",
+                           "The model has been initialized, but the configuration " +
+                           "file has not yet been written to disk.")
+
+        self.model_initialized = True
+
+        self.update_button_states()
+        self.update_data_processed_status()
+
+    def update_simulation_params(self):
+
         # Read the simulation parameters and set them in the simulation structure
         simp = self.get_and_check_simulation_data()
 
@@ -300,16 +318,9 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
         # Days to simulate
         self.sim.stop_time = simp["t_stop"]
 
-        self.show_info_box("Model initialized",
-                           "The model has been initialized, but the configuration " +
-                           "file has not yet been written to disk.")
-
-        self.model_initialized = True
-
-        self.update_button_states()
-        self.update_data_processed_status()
-
     def create_new_simulation(self):
+
+        self.status_bar_message("processing")
 
         # Temoporary disable the button
         self.btnFetchDataAndProcess.setEnabled(False)
@@ -378,6 +389,8 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
             plt.title("Active case dynamics in Estonia (with predicted recovery)")
             plt.grid(True)
 
+        self.status_bar_message("ready")
+
     # Set up those UI elements that depend on config
     def config_ui(self):
 
@@ -395,6 +408,7 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
         # Menu actions
         self.actionLoad_config_file.triggered.connect(self.config_load)
         self.actionSave_config_file_as.triggered.connect(self.config_save_as)
+        self.actionClear_log.triggered.connect(self.clear_log)
 
     # Helper for QMessageBox
     @staticmethod
@@ -464,25 +478,22 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
     def config_load(self):
         print("Not implemented")
 
-    def update_sim_parameters(self):
-        print("Not implemented")
-
     def update_and_save_config(self):
         print("Not implemented")
 
     def config_save(self):
+
+        # First, update the parameters of simulation
+
         # Get config file name
         fs = self.txtConfigFileLoc.text()
 
         # Try to save
         try:
             sim = copy.deepcopy(self.sim)  # Create a deep copy so that everything is stored
-
-            # In order to avoid recursive copy of the GUI widget references, need to completely disable logging in sim
-            sim.log_redirect = None
-
             with open(fs, "wb") as f:
                 pickle.dump(sim, f)
+            self.log("Successfully saved the configuration file.")
         except Exception as ex:
             self.show_info_box("Config file write error", "Could not save configuration file")
             self.log("Could not save configuration file: " + str(ex))
@@ -499,6 +510,8 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
             self.txtConfigFileLoc.setText(fs[0])
             self.config_save()
 
+    def clear_log(self):
+        self.txtConsole.setText("")
 
     def check_paths(self):
         # Use this to check the paths
@@ -522,21 +535,26 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
     def run_single_simulation(self):
 
         # Need to read off latest parameters
-        self.update_sim_parameters()
+        self.update_simulation_params()
 
         # Perform actions depending on the simulation state
         if self.sim.simulation_running:
             # Abort simulation
+            self.status_bar_message("stopping_single")
             self.sim.simulation_abort = True
-            self.btnSingleSim.setText(self.SINGLE_SIM_BUTTON_STATES[0])
+            self.btnSingleSim.setEnabled(False)
+            self.btnMCSim.setEnabled(False)
+
         else:
             # Start the simulation
+            self.status_bar_message("running_single")
             self.btnSingleSim.setText(self.SINGLE_SIM_BUTTON_STATES[1])
 
             tim = time.time()
-            self.log("Running single simulation...")
+            self.log("Running single simulation with spread simulation starting date "
+                     + str(self.sim.date_start) + "...")
 
-            out = self.sim.do_simulation()
+            out = self.sim.do_simulation(logfn=self.log)
 
             if out:
 
@@ -551,7 +569,8 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
                 column_names = ["1", "2", "3", "4", "5", "6", "7", "8", "Total"]
 
                 # Filename
-                fn = "single_sim_results_" + datetime.fromtimestamp(time.time()).strftime('%Y_%m_%d_%H%M%S') + ".xlsx"
+                fn = "single_sim_results_" + \
+                     datetime.fromtimestamp(time.time()).strftime('%Y_%m_%d_%H%M%S') + ".xlsx"
 
                 pdata_act = pd.DataFrame(data=act, columns=column_names)
                 pdata_new = pd.DataFrame(data=new, columns=column_names)
@@ -563,13 +582,141 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
 
                 excelwr.save()
 
+                self.log("Saved simulation result as " + fn)
+
             else:
+                self.btnSingleSim.setText(self.SINGLE_SIM_BUTTON_STATES[0])
+                self.btnSingleSim.setEnabled(True)
+                self.btnMCSim.setEnabled(True)
                 self.log("Single simulation aborted.")
+
+            self.status_bar_message("ready")
 
 
     # Monte-Carlo simulations
     def run_mc_simulations(self):
-        print("Not implemented")
+
+        # Reset abort state
+        self.mc_simulation_abort = False
+
+        # Need to read off latest parameters
+        self.update_simulation_params()
+
+        # Perform actions depending on the simulation state
+        if self.mc_simulation_running:
+            # Abort simulation
+            self.status_bar_message("stopping_mc")
+
+            self.sim.simulation_abort = True
+            self.mc_simulation_abort = True
+
+            self.btnSingleSim.setEnabled(False)
+            self.btnMCSim.setEnabled(False)
+
+        else:
+            # Start the simulation
+            self.mc_simulation_running = True
+            self.status_bar_message("running_mc")
+            self.btnMCSim.setText(self.MC_SIM_BUTTON_STATES[1])
+
+            tim = time.time()
+            self.log("Running Monte-Carlo simulations with spread simulation starting date "
+                     + str(self.sim.date_start) + "...")
+
+            try:
+                N = int(self.txtMcCount.text())
+            except:
+                self.show_info_box("Error reading MC run count", "Could not understand the MC run count. " +
+                                   "Resetting to default = 1000")
+                N = 1000
+                self.txtMcCount.setText(str(N))
+
+            # Start performing N simulations...
+            self.progressBar.show()
+
+            # We need to store all simulation output
+            outs_active = []
+            outs_new = []
+
+            for i in range(N):
+
+                # Bad way to update GUI. Should consider separate thread
+                self.app.processEvents()
+
+                out = self.sim.do_simulation(do_log=False)
+
+                if out and not self.mc_simulation_abort:
+
+                    # Read the data
+                    act, new = out
+
+                    # Store the data
+                    outs_active.append(act)
+                    outs_new.append(new)
+
+                    # Continue
+                    self.progressBar.setValue(int(100*i/N))
+
+                else:
+                    self.btnMCSim.setText(self.MC_SIM_BUTTON_STATES[0])
+                    self.btnSingleSim.setEnabled(True)
+                    self.btnMCSim.setEnabled(True)
+                    self.log("Monte-Carlo simulations aborted.")
+                    self.progressBar.hide()
+                    break
+
+            # If the simulation wasn't aborted, process the statistical data as needed
+
+            if not self.mc_simulation_abort:
+
+                self.btnMCSim.setText(self.MC_SIM_BUTTON_STATES[0])
+                self.btnSingleSim.setEnabled(True)
+                self.btnMCSim.setEnabled(True)
+                self.progressBar.hide()
+
+                self.log("Crunching statistics...")
+
+                # Active cases
+                outs_act_avg = sum(outs_active) / N
+                outs_act_std = np.sqrt(sum(np.power(outs_active - outs_act_avg, 2) / (N - 1)))
+
+                outs_act_all = np.concatenate([outs_act_avg, outs_act_std], axis=1)
+
+                # New cases
+                # Active cases
+                outs_new_avg = sum(outs_new) / N
+                outs_new_std = np.sqrt(sum(np.power(outs_new - outs_new_avg, 2) / (N - 1)))
+
+                outs_new_all = np.concatenate([outs_new_avg, outs_new_std], axis=1)
+
+                column_names = ["1_mean", "2_mean", "3_mean", "4_mean",
+                           "5_mean", "6_mean", "7_mean", "8_mean",
+                           "Total_mean",
+                           "1_std", "2_std", "3_std", "4_std",
+                           "5_std", "6_std", "7_std", "8_std",
+                           "Total_std"
+                           ]
+
+                # Pandas dataframes
+                pdata_act = pd.DataFrame(data=outs_act_all, columns=column_names)
+                pdata_new = pd.DataFrame(data=outs_new_all, columns=column_names)
+
+                # Filename
+                fn = "mc_sim_results_" + \
+                     datetime.fromtimestamp(time.time()).strftime('%Y_%m_%d_%H%M%S') + ".xlsx"
+
+                excelwr = pd.ExcelWriter(self.txtOutputFolder.text() + fn, engine="xlsxwriter")
+
+                pdata_act.to_excel(excelwr, sheet_name="exp+inf in areas")
+                pdata_new.to_excel(excelwr, sheet_name="new in areas")
+
+                excelwr.save()
+
+                self.log("Saved simulation result as " + fn)
+
+            self.mc_simulation_running = False
+
+            self.status_bar_message("ready")
 
 
 def main():

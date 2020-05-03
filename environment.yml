@@ -172,6 +172,7 @@ dependencies:
   - wincertstore=0.2=py37_0
   - wrapt=1.12.1=py37he774522_1
   - xerces-c=3.2.2=ha925a31_0
+  - xlsxwriter=1.2.8=py_0
   - xz=5.2.4=h2fa13f4_4
   - zeromq=4.3.1=h33f27b4_3
   - zipp=2.2.0=py_0
