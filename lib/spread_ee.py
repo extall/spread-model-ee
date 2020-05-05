@@ -118,8 +118,8 @@ class Person:
 
         areadict = self.simul.pool
 
-        if (self.state == "E" or self.state == "I") and (self.will_infect or self.will_infect_more > 0) \
-                and self.will_infect_when > t \
+        if (self.will_infect or self.will_infect_more > 0) \
+                and t >= self.will_infect_when \
                 and areadict[self.will_infect_where][0] >= len(areadict[self.will_infect_where][1]) + self.will_infect_more:
 
             # Only add a new exposed person if area is not saturated (max pop size reached)
@@ -154,7 +154,8 @@ class Person:
                         logfn(
                             "Day " + str(t) + ": Person " + str(self.person_id) + " from area " + str(self.area_id) +
                             " would have infected a new person in area " +
-                            str(self.will_infect_where) + ", but movement restrictions prevented that")
+                            str(self.will_infect_where) + ", but movement restrictions prevented that and the person " +
+                            "will not infect anyone.")
 
             # This is the case for "infect more".
             # NB! Assumption: if mobility is restricted, infecting others will fail in all cases
@@ -189,7 +190,8 @@ class Person:
                         logfn(
                             "Day " + str(t) + ": Person " + str(self.person_id) + " from area " + str(self.area_id) +
                             " would have infected " + str(self.will_infect_more) + " person(s) in area " +
-                            str(self.will_infect_where) + ", but movement restrictions prevented that")
+                            str(self.will_infect_where) + ", but movement restrictions prevented that and the person " +
+                            "will not infect anyone.")
 
             # There is one chance to infect someone, so we need to nullify the corresponding parameters
             self.will_infect = False
@@ -382,7 +384,7 @@ class Covid19SimulationEEV1:
             [p.check_state_e_to_i(self.time, logfn=logfn) for p in self.pool[k + 1][1] if p.state == "E"]
 
             # Check if will infect
-            [p.check_infect_someone(self.time, logfn=logfn) for p in self.pool[k + 1][1] if p.state == "I"]
+            [p.check_infect_someone(self.time, logfn=logfn) for p in self.pool[k + 1][1] if (p.will_infect == True or p.will_infect_more > 0)]
 
             # Check I -> R
             [p.check_state_i_to_r(self.time, logfn=logfn) for p in self.pool[k + 1][1] if p.state == "I"]
