@@ -338,7 +338,6 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
 
             self.log("Error during model initialization: " + str(ex))
 
-
         self.btnFetchDataAndProcess.setEnabled(True)
 
         # If plotting is enabled, show active case dynamics

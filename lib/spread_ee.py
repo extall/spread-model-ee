@@ -38,7 +38,7 @@ EE_WHEN_INITIAL_POP_INFECT_SOMEONE_FACTOR = 0.8  # Related to generation interva
 # according to probability P(inf) which is P(inf)=R0 for the area
 class Person:
 
-    def __init__(self, id, area_id, t, simul=None):
+    def __init__(self, id, area_id, t, simul, gen_correction=1):
 
         self.person_id = id
 
@@ -48,36 +48,41 @@ class Person:
         self.covid19 = Covid19()  # Sorry, you have it now
         self.state = "E"  # Default state is exposed
         self.area_id = area_id
-        self.timestamp = t  # Simulation time in days (0 = first day, 1 = second, etc.)
-        self.symptoms_onset = self.covid19.get_days_to_symptoms() + t
 
-        # NB! Generation interval is counted from moment of infection, so even if the person doesn't infect anyone
-        # else, we need to set this parameter upon person generation
-        self.generation_interval = self.covid19.get_generation_interval() + t
+        self.timestamp = t  # Simulation time in days (0 = first day, 1 = second, etc.)
+
+        # When will the incubation period end?
+        self.symptoms_onset = self.covid19.get_days_to_symptoms() + t
 
         # These will be updated in E->I
         self.recover_time = None
 
-        # These are properties related to whether the person will actually infect someone else.
-        self.will_infect = False
-        self.will_infect_when = self.generation_interval
-        self.will_infect_where = None
+        # Assign infection list depending on R0 in the region.
+        self.will_infect_list = []
+        self.create_will_infect_list_random_areas(t, gen_correction=gen_correction)  # Initialize the list
 
-        # Mobility restriction in place?
-        self.mobility_restricted = False
+    def create_will_infect_list_random_areas(self, t=0, gen_correction=1):
 
-        # This is reserved for the case of R0 > 1 in which the person will
-        # definitely infect at least N people, where N = int(modf(R0)[1]) and
-        # with probability modf(R0)[0] one more person
-        self.will_infect_more = 0
+        # How many people will this person infect?
+        N_infects = 0
 
-        # According to probability, assign whether the person will infect someone
-        if self.check_if_will_infect():
-            self.will_infect = True
+        r0 = self.simul.r0_per_region[self.area_id]
+        if r0 > 1:
+            N_infects += int(math.modf(r0)[1])
+            r0 = math.modf(r0)[0]
 
-            # Only assign if not previously assigned in case r0>=1
-            if self.will_infect_where is None:
-                self.will_infect_where = self.get_infection_area()
+        # Check against leftover R0
+        N_infects += 1 if np.random.random() <= r0 else 0
+
+        # Now, create a list with infection dates and areas
+        inf_list = []
+        for k in range(N_infects):
+            inf_when = int(gen_correction * self.covid19.get_generation_interval()) + t
+            inf_where, restrict = self.get_infection_area()
+            inf_list.append((inf_when, inf_where, restrict))
+
+        # Store the list
+        self.will_infect_list = inf_list
 
     # Exposed to infected (time = simulation time)
     def check_state_e_to_i(self, t, logfn=None):
@@ -98,68 +103,30 @@ class Person:
                                         " begins showing symptoms and will recover in " + str(days_to_recover) +
                                         " days")
 
-        # At this stage we also figure out whether it's time for the person to infect
-
-    # NB! Should account for the situation where R0 > 1.
-    # This here is the most crucial step in the whole simulation
-    def check_if_will_infect(self):
-        # Let us see what happens according to the region's R0
-        r0 = self.simul.r0_per_region[self.area_id]
-        if r0 > 1:
-            self.will_infect_more = int(math.modf(r0)[1])
-            self.will_infect_where = self.get_infection_area()  # Need to assign this here for cases r0>=1
-            r0 = math.modf(r0)[0]
-
-        return np.random.random() <= r0
-
     # This needs an AREAS argument which is the dictionary of lists that contain all the areas with E/I/R persons
     # (from Simulation structure)
     def check_infect_someone(self, t, logfn=None):
 
-        if self.simul is None:
-            raise Exception("Simulation object is not associated with this person")
-
         areadict = self.simul.pool
 
-        if (self.will_infect or self.will_infect_more > 0) \
-                and t >= self.will_infect_when \
-                and areadict[self.will_infect_where][0] >= len(areadict[self.will_infect_where][1]) + self.will_infect_more:
+        # Figure out which of the infections are taking place today
+        if len(self.will_infect_list) > 0:
+            will_infect_today = [i for i in self.will_infect_list if t >= i[0]]
+            self.will_infect_list = [i for i in self.will_infect_list if t < i[0]]  # Update the list
 
-            # Only add a new exposed person if area is not saturated (max pop size reached)
-            # Also check mobility restriction probabilities for every case
-
-            # This is the case for r0<=1
-            if self.will_infect:
-
-                id_to_infect = self.simul.next_person_id
-                npc = Person(id_to_infect, self.will_infect_where, t, self.simul)
-                self.simul.next_person_id += 1  # Need to keep track of this
-                areadict[self.will_infect_where][1].append(npc)
-                if logfn is not None and self.simul.do_log:
-                    logfn("Day " + str(t) + ": " + ("[Mobility restricted] " if self.mobility_restricted else "") +
-                          "Person " + str(self.person_id) + " from area " + str(self.area_id) +
-                          " infects a new person " + str(id_to_infect) + " in area " +
-                          str(self.will_infect_where))
-
-            # This is the case for "infect more".
-            if self.will_infect_more > 0:
-
-                for i in range(self.will_infect_more):
+            # Proceed with infecting people
+            for i in will_infect_today:
+                if areadict[i[1]][0] >= len(areadict[i[1]][1]):
                     id_to_infect = self.simul.next_person_id
-                    npc = Person(id_to_infect, self.will_infect_where, t, self.simul)
+                    npc = Person(id_to_infect, i[1], t, self.simul)
                     self.simul.next_person_id += 1  # Need to keep track of this
-                    areadict[self.will_infect_where][1].append(npc)
+                    areadict[i[1]][1].append(npc)
 
                     if logfn is not None and self.simul.do_log:
-                        logfn(
-                            "Day " + str(t) + ": " + ("[Mobility restricted] " if self.mobility_restricted else "") +
-                            "Person " + str(self.person_id) + " from area " + str(self.area_id) +
-                            " infects a new person " + str(id_to_infect) + " in area " +
-                            str(self.will_infect_where))
-
-            # There is one chance to infect someone, so we need to nullify the corresponding parameters
-            self.will_infect = False
-            self.will_infect_more = 0
+                        logfn("Day " + str(t) + ": " + ("[Mobility restricted] " if i[2] else "") +
+                              "Person " + str(self.person_id) + " from area " + str(self.area_id) +
+                              " infects a new person " + str(id_to_infect) + " in area " +
+                              str(i[1]))
 
     # Infected to recovered (time = simulation time)
     def check_state_i_to_r(self, t, logfn=None):
@@ -173,16 +140,11 @@ class Person:
 
     def get_infection_area(self):
 
-        # The case when no reference to simulation is available,
-        # mobility_dict is missing, or there is no simulation pool
-        if self.simul is None or self.simul.mobility_dict is None or self.simul.pool is None:
-            return self.area_id
-
-        # Otherwise, compute the probability of the person infecting another in a different area
+        # Compute the probability of the person infecting another in a different area
         md = self.simul.mobility_dict
 
         # Stay in own area: a fraction of people remaining in their own area with a chance of interaction
-        pop_in_this_area = self.simul.pool[self.area_id][0]
+        pop_in_this_area = self.simul.pop_sizes[self.area_id]
         stay_act = self.simul.fraction_stay_active * pop_in_this_area
 
         travel_list = []  # Note that the sequence is important here
@@ -221,11 +183,10 @@ class Person:
 
         # If mobility is restricted, assign this restriction to person and return his home area id
         if this_mobility_restricted:
-            self.mobility_restricted = True
             chance_area = self.area_id
 
         # Return the most likely infection area
-        return chance_area
+        return chance_area, this_mobility_restricted
 
 
 # The simulation class. Handles a single simulation
@@ -238,6 +199,9 @@ class Covid19SimulationEEV1:
 
         # Logging enabled by default
         self.do_log = True
+
+        # Population sizes
+        self.pop_sizes = ee_covid19_area_population_2016()
 
         # Check initial infected population generation parameters
 
@@ -295,19 +259,14 @@ class Covid19SimulationEEV1:
     def initial_pool_generate_person(self, p):
         # NB! Assumption: we cut generation intervals by a factor in the initial infected population
         # because there is no data about when the person was exposed and the generation interval is counted from thence
-        pers = Person(self.next_person_id, p.area_id, 0, self)
+        pers = Person(self.next_person_id, p.area_id, 0, self, gen_correction=self.init_gen_interval_factor)
 
-        # Another important assumption is that we assume that all members of the
-        # initial population will infect someone in their own area
-        infect_area = p.area_id
-
-        pers.will_infect = False  # By default, the person will not infect anyone (see below for P)
         pers.state = "I"
         pers.recover_time = p.days_to_recovery_from_now
-        if pers.check_if_will_infect() and np.random.random() <= self.prob_initial_infect_another:
-            pers.will_infect = True
-            pers.will_infect_where = infect_area
-            pers.will_infect_when = math.floor(pers.covid19.get_generation_interval() * self.init_gen_interval_factor)
+
+        # Remove the infection list from this person if chance says so
+        if not (np.random.random() <= self.prob_initial_infect_another):
+            pers.will_infect_list = []
 
         self.next_person_id += 1
 
@@ -364,7 +323,7 @@ class Covid19SimulationEEV1:
             [p.check_state_e_to_i(self.time, logfn=logfn) for p in self.pool[k + 1][1] if p.state == "E"]
 
             # Check if will infect
-            [p.check_infect_someone(self.time, logfn=logfn) for p in self.pool[k + 1][1] if (p.will_infect == True or p.will_infect_more > 0)]
+            [p.check_infect_someone(self.time, logfn=logfn) for p in self.pool[k + 1][1] if len(p.will_infect_list) > 0]
 
             # Check I -> R
             [p.check_state_i_to_r(self.time, logfn=logfn) for p in self.pool[k + 1][1] if p.state == "I"]
