@@ -63,6 +63,9 @@ class Person:
         self.will_infect_when = self.generation_interval
         self.will_infect_where = None
 
+        # Mobility restriction in place?
+        self.mobility_restricted = False
+
         # This is reserved for the case of R0 > 1 in which the person will
         # definitely infect at least N people, where N = int(modf(R0)[1]) and
         # with probability modf(R0)[0] one more person
@@ -128,70 +131,31 @@ class Person:
             # This is the case for r0<=1
             if self.will_infect:
 
-                this_mobility_restricted = False
+                id_to_infect = self.simul.next_person_id
+                npc = Person(id_to_infect, self.will_infect_where, t, self.simul)
+                self.simul.next_person_id += 1  # Need to keep track of this
+                areadict[self.will_infect_where][1].append(npc)
+                if logfn is not None and self.simul.do_log:
+                    logfn("Day " + str(t) + ": " + ("[Mobility restricted] " if self.mobility_restricted else "") +
+                          "Person " + str(self.person_id) + " from area " + str(self.area_id) +
+                          " infects a new person " + str(id_to_infect) + " in area " +
+                          str(self.will_infect_where))
 
-                # Check mobility to and from Saaremaa
-                if self.area_id == 6 or self.will_infect_where == 6:
-                    # Check restriction probability
-                    if not (np.random.random() <= self.simul.prob_mob_saare_reg_unrestricted):
-                        this_mobility_restricted = True
-                # Or check inter-region mobility
-                elif self.area_id != self.will_infect_where:
-                    if not (np.random.random() <= self.simul.prob_mob_regions_unrestricted):
-                        this_mobility_restricted = True
+            # This is the case for "infect more".
+            if self.will_infect_more > 0:
 
-                if not this_mobility_restricted:
+                for i in range(self.will_infect_more):
                     id_to_infect = self.simul.next_person_id
                     npc = Person(id_to_infect, self.will_infect_where, t, self.simul)
                     self.simul.next_person_id += 1  # Need to keep track of this
                     areadict[self.will_infect_where][1].append(npc)
-                    if logfn is not None and self.simul.do_log:
-                        logfn("Day " + str(t) + ": Person " + str(self.person_id) + " from area " + str(self.area_id) +
-                                                " infects a new person " + str(id_to_infect) + " in area " +
-                                                str(self.will_infect_where))
-                else:
+
                     if logfn is not None and self.simul.do_log:
                         logfn(
-                            "Day " + str(t) + ": Person " + str(self.person_id) + " from area " + str(self.area_id) +
-                            " would have infected a new person in area " +
-                            str(self.will_infect_where) + ", but movement restrictions prevented that and the person " +
-                            "will not infect anyone.")
-
-            # This is the case for "infect more".
-            # NB! Assumption: if mobility is restricted, infecting others will fail in all cases
-            if self.will_infect_more > 0:
-
-                this_mobility_restricted = False
-
-                # Check mobility to and from Saaremaa
-                if self.area_id == 6 or self.will_infect_where == 6:
-                    # Check restriction probability
-                    if not (np.random.random() <= self.simul.prob_mob_saare_reg_unrestricted):
-                        this_mobility_restricted = True
-                # Or check inter-region mobility
-                elif self.area_id != self.will_infect_where:
-                    if not (np.random.random() <= self.simul.prob_mob_regions_unrestricted):
-                        this_mobility_restricted = True
-
-                if not this_mobility_restricted:
-                    for i in range(self.will_infect_more):
-                        id_to_infect = self.simul.next_person_id
-                        npc = Person(id_to_infect, self.will_infect_where, t, self.simul)
-                        self.simul.next_person_id += 1  # Need to keep track of this
-                        areadict[self.will_infect_where][1].append(npc)
-
-                        if logfn is not None and self.simul.do_log:
-                            logfn(
-                                "Day " + str(t) + ": Person " + str(self.person_id) + " from area " + str(self.area_id) +
-                                " infects a new person " + str(id_to_infect) + " in area " +
-                                str(self.will_infect_where))
-                else:
-                    if logfn is not None and self.simul.do_log:
-                        logfn(
-                            "Day " + str(t) + ": Person " + str(self.person_id) + " from area " + str(self.area_id) +
-                            " would have infected " + str(self.will_infect_more) + " person(s) in area " +
-                            str(self.will_infect_where) + ", but movement restrictions prevented that and the person " +
-                            "will not infect anyone.")
+                            "Day " + str(t) + ": " + ("[Mobility restricted] " if self.mobility_restricted else "") +
+                            "Person " + str(self.person_id) + " from area " + str(self.area_id) +
+                            " infects a new person " + str(id_to_infect) + " in area " +
+                            str(self.will_infect_where))
 
             # There is one chance to infect someone, so we need to nullify the corresponding parameters
             self.will_infect = False
@@ -242,7 +206,23 @@ class Person:
 
         chance_area = np.random.choice(np.arange(1,9), p=p_travel)
 
-        # print("So the person from area", self.area_id, "will infect another in area", chance_area) # Debug
+        # Check against travel restriction probabilities
+        this_mobility_restricted = False
+
+        # Check mobility to and from Saaremaa
+        if self.area_id == 6 or chance_area == 6:
+            # Check restriction probability
+            if not (np.random.random() <= self.simul.prob_mob_saare_reg_unrestricted):
+                this_mobility_restricted = True
+        # Or check inter-region mobility
+        elif self.area_id != chance_area:
+            if not (np.random.random() <= self.simul.prob_mob_regions_unrestricted):
+                this_mobility_restricted = True
+
+        # If mobility is restricted, assign this restriction to person and return his home area id
+        if this_mobility_restricted:
+            self.mobility_restricted = True
+            chance_area = self.area_id
 
         # Return the most likely infection area
         return chance_area
