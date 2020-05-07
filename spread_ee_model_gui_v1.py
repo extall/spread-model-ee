@@ -59,6 +59,9 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
     sim = None  # The simulation object
     model_initialized = False  # Whether model is initialized
 
+    fig_initial_handle = None
+    fig_later_handle = None
+
     proposed_fn = None
 
     initial_active_case_dynamics = None
@@ -342,7 +345,13 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
 
         # If plotting is enabled, show active case dynamics
         if self.actionDisplayActiveCaseGraph.isChecked() and self.model_initialized:
+            self.do_initial_plot()
 
+        self.status_bar_message("ready")
+
+    def do_initial_plot(self):
+
+        if self.sim is not None and self.model_initialized:
             datas = self.sim.initial_pool_aux_data
 
             # Now we create a dict which holds days relative to the first date
@@ -381,14 +390,17 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
             # Store this information since it may be necessary later
             self.initial_active_case_dynamics = (t, y)
 
-            h = plt.figure(num="EE Virus Active Cases")
+            # Clear previous plot
+            if self.fig_initial_handle is not None:
+                self.fig_initial_handle.clear()
+                self.fig_initial_handle = None
+
+            self.fig_initial_handle = plt.figure(num="EE Virus Active Cases")
             plt.plot(t, y)
             plt.xlabel("Days since " + str(datas["first_date"]))
             plt.ylabel("Number of active cases in Estonia [statistical model]")
             plt.title("Active case dynamics in Estonia (with predicted recovery)")
             plt.grid(True)
-
-        self.status_bar_message("ready")
 
     # Set up those UI elements that depend on config
     def config_ui(self):
@@ -475,7 +487,58 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
 
     # The following methods deal with config files
     def config_load(self):
-        print("Not implemented")
+
+        p = Path(self.txtConfigFileLoc.text())
+        dir = p.parent
+
+        fn = QtWidgets.QFileDialog.getOpenFileName(self, "Load config file", str(dir), "Config file (*.cfg)")
+
+        # If a file is chosen, process it
+        if fn:
+            try:
+                with open(fn, "rb") as f:
+                    my_sim = pickle.load(f)
+
+                # Parse the simulation structure and put all parameters where they need to go
+                self.sim = my_sim  # Set up the simulation structure
+
+                # Populate the parameter fields based on the parameters stored in the simulation object
+                self.populate_fields_from_sim()
+
+                # Finally, show that the model is initialized
+                self.model_initialized = True
+                self.update_data_processed_status()
+
+            except Exception as ex:
+                self.show_info_box("Could not load config file", "Could not load or parse the config file. It either" +
+                                   " has an unsupported format, or it is a wrong type of" +
+                                   " file.")
+
+                self.log("Could not load the config file: " + str(ex))
+
+    def populate_fields_from_sim(self):
+        if self.sim is not None:
+            all_params = [
+                ["frac_stay_active", "Fraction staying active in region", "txtSimParamStayingActive",
+                 0.005, (0, 1), "both", "float"],
+                ["prob_mob_regions", "Probability of mobility between regions is unrestricted",
+                 "txtSimParamProbMobBetweenReg", 1.0, (0, 1), "both", "float"],
+                ["prob_mob_saaremaa", "Probability of mobility between Saaremaa and mainland is unrestricted",
+                 "txtSimParamProbMobilityBetweenSaareUnrestr", 1.0, (0, 1), "both", "float"],
+                ["r0r1", "R0 for Region 1", "txtR0R1", 0.9, (0,), "lb", "float"],
+                ["r0r2", "R0 for Region 2", "txtR0R2", 0.8, (0,), "lb", "float"],
+                ["r0r3", "R0 for Region 3", "txtR0R3", 0.8, (0,), "lb", "float"],
+                ["r0r4", "R0 for Region 4", "txtR0R4", 0.8, (0,), "lb", "float"],
+                ["r0r5", "R0 for Region 5", "txtR0R5", 0.8, (0,), "lb", "float"],
+                ["r0r6", "R0 for Region 6", "txtR0R6", 0.6, (0,), "lb", "float"],
+                ["r0r7", "R0 for Region 7", "txtR0R7", 0.8, (0,), "lb", "float"],
+                ["r0r8", "R0 for Region 8", "txtR0R8", 0.8, (0,), "lb", "float"],
+                ["t_stop", "Simulation stops after N days", "txtTStopNDays", 90, (0,), "lb", "int"]
+            ]
+
+            params_to_set = [[self.sim.fraction_stay_active, "txtSimParamStayingActive"],
+                             [],
+                             []]
 
     def update_and_save_config(self):
         print("Not implemented")
@@ -502,9 +565,9 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
         # Get current directory
         p = Path(self.txtConfigFileLoc.text())
         dir = p.parent
-        prefer_save = dir + os.sep + self.proposed_fn
+        prefer_save = str(dir) + os.sep + self.proposed_fn
 
-        fs = QtGui.QFileDialog.getSaveFileName(self, "Save config file as", prefer_save, "*.cfg")
+        fs = QtWidgets.QFileDialog.getSaveFileName(self, "Save config file as", prefer_save, "*.cfg")
         if fs:
             self.txtConfigFileLoc.setText(fs[0])
             self.config_save()
@@ -590,7 +653,6 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
                 self.log("Single simulation aborted.")
 
             self.status_bar_message("ready")
-
 
     # Monte-Carlo simulations
     def run_mc_simulations(self):
