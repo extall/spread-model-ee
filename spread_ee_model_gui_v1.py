@@ -412,7 +412,6 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
         self.btnBrowseOutputFolder.clicked.connect(self.browse_output_folder)
         self.btnSaveConfig.clicked.connect(self.config_save)
         self.btnConfigSaveAs.clicked.connect(self.config_save_as)
-        self.btnConfigLoad.clicked.connect(self.config_load)
         self.btnSingleSim.clicked.connect(self.run_single_simulation)
         self.btnMCSim.clicked.connect(self.run_mc_simulations)
 
@@ -496,18 +495,34 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
         # If a file is chosen, process it
         if fn:
             try:
-                with open(fn, "rb") as f:
+                with open(fn[0], "rb") as f:
                     my_sim = pickle.load(f)
 
                 # Parse the simulation structure and put all parameters where they need to go
                 self.sim = my_sim  # Set up the simulation structure
 
                 # Populate the parameter fields based on the parameters stored in the simulation object
-                self.populate_fields_from_sim()
+                success = self.populate_fields_from_sim()
 
-                # Finally, show that the model is initialized
-                self.model_initialized = True
-                self.update_data_processed_status()
+                if success:
+
+                    # Set the file name
+                    self.txtConfigFileLoc.setText(fn[0])
+
+                    # Check if the output folder is empty
+                    if self.txtOutputFolder.text() == "":
+                        p = Path(OUTPUT_DIR_NAME)
+                        p.resolve()
+                        if not (p.exists() and p.is_dir()):
+                            os.mkdir(OUTPUT_DIR_NAME)
+                        self.txtOutputFolder.setText(self.fix_path(OUTPUT_DIR_NAME))
+
+                    # Finally, show that the model is initialized
+                    self.model_initialized = True
+                    self.update_data_processed_status()
+
+                    # Update also buttons
+                    self.update_button_states()
 
             except Exception as ex:
                 self.show_info_box("Could not load config file", "Could not load or parse the config file. It either" +
@@ -518,34 +533,55 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
 
     def populate_fields_from_sim(self):
         if self.sim is not None:
-            all_params = [
-                ["frac_stay_active", "Fraction staying active in region", "txtSimParamStayingActive",
-                 0.005, (0, 1), "both", "float"],
-                ["prob_mob_regions", "Probability of mobility between regions is unrestricted",
-                 "txtSimParamProbMobBetweenReg", 1.0, (0, 1), "both", "float"],
-                ["prob_mob_saaremaa", "Probability of mobility between Saaremaa and mainland is unrestricted",
-                 "txtSimParamProbMobilityBetweenSaareUnrestr", 1.0, (0, 1), "both", "float"],
-                ["r0r1", "R0 for Region 1", "txtR0R1", 0.9, (0,), "lb", "float"],
-                ["r0r2", "R0 for Region 2", "txtR0R2", 0.8, (0,), "lb", "float"],
-                ["r0r3", "R0 for Region 3", "txtR0R3", 0.8, (0,), "lb", "float"],
-                ["r0r4", "R0 for Region 4", "txtR0R4", 0.8, (0,), "lb", "float"],
-                ["r0r5", "R0 for Region 5", "txtR0R5", 0.8, (0,), "lb", "float"],
-                ["r0r6", "R0 for Region 6", "txtR0R6", 0.6, (0,), "lb", "float"],
-                ["r0r7", "R0 for Region 7", "txtR0R7", 0.8, (0,), "lb", "float"],
-                ["r0r8", "R0 for Region 8", "txtR0R8", 0.8, (0,), "lb", "float"],
-                ["t_stop", "Simulation stops after N days", "txtTStopNDays", 90, (0,), "lb", "int"]
-            ]
+            try:
+                # Simulation parameters
+                params_to_set = [[self.sim.fraction_stay_active, "txtSimParamStayingActive"],
+                                 [self.sim.r0_per_region[1], "txtR0R1"],
+                                 [self.sim.r0_per_region[2], "txtR0R2"],
+                                 [self.sim.r0_per_region[3], "txtR0R3"],
+                                 [self.sim.r0_per_region[4], "txtR0R4"],
+                                 [self.sim.r0_per_region[5], "txtR0R5"],
+                                 [self.sim.r0_per_region[6], "txtR0R6"],
+                                 [self.sim.r0_per_region[7], "txtR0R7"],
+                                 [self.sim.r0_per_region[8], "txtR0R8"],
+                                 [self.sim.fraction_stay_active, "txtSimParamStayingActive"],
+                                 [self.sim.prob_mob_regions_unrestricted, "txtSimParamProbMobBetweenReg"],
+                                 [self.sim.prob_mob_saare_reg_unrestricted, "txtSimParamProbMobilityBetweenSaareUnrestr"],
+                                 [self.sim.stop_time, "txtTStopNDays"]
+                                 ]
 
-            params_to_set = [[self.sim.fraction_stay_active, "txtSimParamStayingActive"],
-                             [],
-                             []]
+                for p in params_to_set:
+                    getattr(self, p[1]).setText(str(p[0]))
 
-    def update_and_save_config(self):
-        print("Not implemented")
+                # Initial state generation parameters
+                gene_to_set = [
+                    [self.sim.gen_params["days_back"], "txtNDaysAgo"],
+                    [self.sim.gen_params["gen_interval_factor"], "txtFractionGenerationInt"],
+                    [self.sim.gen_params["prob_will_infect"], "txtProbInitialInfect"]
+                ]
+
+                for p in gene_to_set:
+                    getattr(self, p[1]).setText(str(p[0]))
+
+                return True
+
+            except Exception as ex:
+                self.show_info_box("Could not load configuration", "An error occured during loading of parameters " +
+                                   "from the configuration file. Please make sure that the file is valid and is " +
+                                   "compatible with this version of the tool."
+                                   )
+                self.log("Could not load parameters from configuration file: " + str(ex))
+                return False
+        else:
+            self.show_info_box("No simulation loaded", "Cannot load the configuration parameters since no there is " +
+                               "no simulation data loaded.")
+            return False
 
     def config_save(self):
 
-        # First, update the parameters of simulation
+        # First, update the parameters of simulation.
+        # Note that generation parameters ARE NOT overwritten in the save even if changed in the interface
+        self.update_simulation_params()
 
         # Get config file name
         fs = self.txtConfigFileLoc.text()
