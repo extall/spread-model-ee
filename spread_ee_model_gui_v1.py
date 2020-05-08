@@ -493,7 +493,7 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
         fn = QtWidgets.QFileDialog.getOpenFileName(self, "Load config file", str(dir), "Config file (*.cfg)")
 
         # If a file is chosen, process it
-        if fn:
+        if fn[0] != "":
             try:
                 with open(fn[0], "rb") as f:
                     my_sim = pickle.load(f)
@@ -544,7 +544,6 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
                                  [self.sim.r0_per_region[6], "txtR0R6"],
                                  [self.sim.r0_per_region[7], "txtR0R7"],
                                  [self.sim.r0_per_region[8], "txtR0R8"],
-                                 [self.sim.fraction_stay_active, "txtSimParamStayingActive"],
                                  [self.sim.prob_mob_regions_unrestricted, "txtSimParamProbMobBetweenReg"],
                                  [self.sim.prob_mob_saare_reg_unrestricted, "txtSimParamProbMobilityBetweenSaareUnrestr"],
                                  [self.sim.stop_time, "txtTStopNDays"]
@@ -629,6 +628,27 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
 
     # Simulations #
 
+    # This is a helper function for fetching simulation data in (param, param_value) pairs
+    def get_simulation_metadata(self):
+        return [("[Sim] Simulation performed on", self.sim.created_timestamp),
+                        ("[Sim] Simulation start date", self.sim.date_start),
+                        ("[Sim] Number of days simulated", self.sim.stop_time),
+                        ("[Sim] Initial number of infected across all regions", self.sim.initial_infected_number),
+                        ("[Sim] Fraction of people staying active in their area", self.sim.fraction_stay_active),
+                        ("[Sim] R_0 for area R1", self.sim.r0_per_region[1]),
+                        ("[Sim] R_0 for area R2", self.sim.r0_per_region[2]),
+                        ("[Sim] R_0 for area R3", self.sim.r0_per_region[3]),
+                        ("[Sim] R_0 for area R4", self.sim.r0_per_region[4]),
+                        ("[Sim] R_0 for area R5", self.sim.r0_per_region[5]),
+                        ("[Sim] R_0 for area R6", self.sim.r0_per_region[6]),
+                        ("[Sim] R_0 for area R7", self.sim.r0_per_region[7]),
+                        ("[Sim] R_0 for area R8", self.sim.r0_per_region[8]),
+                        ("[Sim] Prob. that movement is not restricted between regions",
+                         self.sim.prob_mob_regions_unrestricted),
+                        ("[Sim] Prob. that movement is not restricted between Saaremaa and mainland",
+                         self.sim.prob_mob_saare_reg_unrestricted),
+                        ]
+
     # Single simulation
     def run_single_simulation(self):
 
@@ -673,10 +693,15 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
                 pdata_act = pd.DataFrame(data=act, columns=column_names)
                 pdata_new = pd.DataFrame(data=new, columns=column_names)
 
+                # Also need to add useful metadata
+                meta = self.get_simulation_metadata()
+                pmeta = pd.DataFrame(data=meta, columns=['Parameter', 'Value'])
+
                 excelwr = pd.ExcelWriter(self.txtOutputFolder.text() + fn, engine="xlsxwriter")
 
                 pdata_act.to_excel(excelwr, sheet_name="exp+inf in areas")
                 pdata_new.to_excel(excelwr, sheet_name="new in areas")
+                pmeta.to_excel(excelwr, sheet_name="sim meta")
 
                 excelwr.save()
 
@@ -780,7 +805,6 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
                 outs_act_all = np.concatenate([outs_act_avg, outs_act_std], axis=1)
 
                 # New cases
-                # Active cases
                 outs_new_avg = sum(outs_new) / N
                 outs_new_std = np.sqrt(sum(np.power(outs_new - outs_new_avg, 2) / (N - 1)))
 
@@ -798,6 +822,14 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
                 pdata_act = pd.DataFrame(data=outs_act_all, columns=column_names)
                 pdata_new = pd.DataFrame(data=outs_new_all, columns=column_names)
 
+                # Metadata
+                meta = self.get_simulation_metadata()
+
+                # Insert number of MC runs into metadata
+                meta.insert(3, ("[Sim] Number of Monte-Carlo runs performed", int(self.txtMcCount.text())))
+
+                pmeta = pd.DataFrame(data=meta, columns=['Parameter', 'Value'])
+
                 # Filename
                 fn = "mc_sim_results_" + \
                      datetime.fromtimestamp(time.time()).strftime('%Y_%m_%d_%H%M%S') + ".xlsx"
@@ -806,6 +838,7 @@ class SpreadEEGui(QtWidgets.QMainWindow, vspread_model_v1_ui.Ui_SpreadEEGui):
 
                 pdata_act.to_excel(excelwr, sheet_name="exp+inf in areas")
                 pdata_new.to_excel(excelwr, sheet_name="new in areas")
+                pmeta.to_excel(excelwr, sheet_name="sim meta")
 
                 excelwr.save()
 

@@ -225,6 +225,7 @@ class Covid19SimulationEEV1:
 
         self.next_person_id = 1
         self.initial_person_last_id = None  # Will be used to reset the person_id on every run
+        self.initial_infected_number = 0
         self.time = 0  # Timestamp. We need not use dates since we can guarantee that the simulation step is 1 day
         self.stop_time = EE_SIM_DAYS_TO_SIMULATE  # For how many days to we simulate the spread?
         self.days_back = timedelta(days=days_back) # Days back from now we finish initialization
@@ -276,7 +277,7 @@ class Covid19SimulationEEV1:
     def generate_infected_pool(self, data_url, log_redirect=None):
 
         initial_pool = {}
-        popmaxsizes = ee_covid19_area_population_2016()
+        popmaxsizes = self.pop_sizes
 
         initial_situation, auxdata = \
             ee_parse_infected_dynamically_and_assign_to_areas_until_date(self.simulation_performed - self.days_back,
@@ -289,6 +290,8 @@ class Covid19SimulationEEV1:
         self.date_start = auxdata["last_date"]
 
         all_still_infected = [p for p in initial_situation if p.state == "I"]
+
+        self.initial_infected_number = len(all_still_infected)
 
         # Last person ID
         self.next_person_id = initial_situation[-1].pers_id + 1
