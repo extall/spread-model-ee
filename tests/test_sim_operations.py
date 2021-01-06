@@ -53,12 +53,18 @@ class EE_locs(enum.Enum):
     kindergarten = 2
     university = 3
     shopping_center = 4
-    residence = 5
-    hospital = 6
-    club = 7
-    bar = 8
-    restaurant = 9
-    sports_center = 10
+    regular_residence = 5  # "Mass residence"
+    private_residence = 6
+    hospital = 7
+    club = 8
+    bar = 9
+    restaurant = 10  # Can order "to go"
+    sports_center = 11
+    office = 12
+    admin_office = 13  # Can "go online"
+    production_hall = 14  # Good comment: cannot "go online"
+    
+# NB! Consider the possibility for locations to "go online"
 
 # %% NB! Need to figure out the scale
 class EE_grid_coordinate:
